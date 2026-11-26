@@ -110,6 +110,8 @@ LazySVN keys:
   g / G          Top / Bottom
   Tab            Toggle path/status sort (M, then A first)
   space          Mark/unmark file
+  Shift+V        Select a range of visible files with the movement keys
+                 Shift+V or Space marks the range, Esc cancels it
   /              Edit filters at the bottom of Changes (status first, Tab for path)
   esc            Clear filter, or clear marks if no filter is active
   d or Enter     Diff selected file (follows the cursor)

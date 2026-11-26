@@ -161,6 +161,7 @@ func (m model) renderChangesPane(p paneBox) string {
 
 	start := m.scrollStart(listRows)
 	end := min(visible, start+listRows)
+	first, last := m.rangeBounds()
 	for i := start; i < end; i++ {
 		e := m.visibleEntry(i)
 		cursor, mark := " ", " "
@@ -169,6 +170,8 @@ func (m model) renderChangesPane(p paneBox) string {
 		}
 		if _, ok := m.marked[e.Path]; ok {
 			mark = "*"
+		} else if m.mode == modeSelectRange && first <= i && i <= last {
+			mark = "+"
 		}
 		line := fmt.Sprintf("%s%s [%s] %s", cursor, mark, statusCodeStyle(e.Code).Render(string(e.Code)), e.Path)
 		if e.Changelist != "" {
@@ -304,6 +307,8 @@ func (m model) renderFooter(width int) string {
 		return promptStyle.Render(truncate(fmt.Sprintf("Commit (%d path(s)): %s", len(m.pendingPaths), m.commitInput.View()), width))
 	case modeConfirmRevert:
 		return promptStyle.Render(truncate(fmt.Sprintf("Revert %d path(s)? Press y or n.", len(m.pendingPaths)), width))
+	case modeSelectRange:
+		return promptStyle.Render(truncate("Range select  V/Space mark  Esc cancel  j/k move", width))
 	case modeFilter:
 		if m.notice.level == noticeError && m.notice.text != "" {
 			return errorStyle.Render(truncate(m.notice.text, width))
@@ -315,7 +320,7 @@ func (m model) renderFooter(width int) string {
 	if m.filter.active() {
 		filterHelp = "/ filter  esc clear filter"
 	}
-	help := "tab sort  " + filterHelp + "  j/k move  space mark  d diff  l log  c commit  a add  v revert  u update  r refresh  q quit"
+	help := "tab sort  " + filterHelp + "  j/k  Space/V mark  d diff  l log  c commit  a add  v revert  u update  r refresh  q quit"
 	status, style := m.statusText()
 	return dimStyle.Render(truncate(help+" | ", width)) + style.Render(truncate(status, max(0, width-ansi.StringWidth(help+" | "))))
 }
