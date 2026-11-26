@@ -78,6 +78,10 @@ go test ./...
 go test -run '^$' -bench . -benchmem   # hot-path benchmarks
 ```
 
+Each branch push runs the [Build workflow](.github/workflows/ci.yml). After
+the tests pass, download the Linux, macOS, and Windows binaries for amd64 and
+arm64 from the run's **Artifacts** section.
+
 Releases are built by [GoReleaser](https://goreleaser.com) from
 `.goreleaser.yaml` when a `v*` tag is pushed. Try the whole pipeline locally
 with `goreleaser release --snapshot --clean`.
