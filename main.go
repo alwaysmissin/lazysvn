@@ -19,12 +19,28 @@ func main() {
 	if len(os.Args) > 1 {
 		os.Exit(runCLI(os.Args[1:]))
 	}
+	os.Exit(runTUI())
+}
 
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "lazysvn failed: %v\n", err)
-		os.Exit(1)
+func runTUI() int {
+	m := initialModel()
+	path, configErr := sortOrderPath()
+	if configErr == nil {
+		m.sortOrder = loadSortOrder(path)
 	}
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	result, err := p.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lazysvn failed: %v\n", err)
+		return 1
+	}
+	if configErr == nil {
+		configErr = saveSortOrder(path, result.(model).sortOrder)
+	}
+	if configErr != nil {
+		fmt.Fprintf(os.Stderr, "lazysvn could not save sort order: %v\n", configErr)
+	}
+	return 0
 }
 
 func isHelpArg(s string) bool {
@@ -92,6 +108,7 @@ func helpText() string {
 LazySVN keys:
   j/k or arrows  Move
   g / G          Top / Bottom
+  Tab            Toggle path/status sort (M, then A first)
   space          Mark/unmark file
   /              Edit filters at the bottom of Changes (status first, Tab for path)
   esc            Clear filter, or clear marks if no filter is active

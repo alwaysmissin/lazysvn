@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -54,70 +53,11 @@ func parseChangeFilter(path, statuses string) (changeFilter, error) {
 	return filter, nil
 }
 
-func (m model) visibleCount() int {
-	if m.filter.active() {
-		return len(m.matches)
-	}
-	return len(m.entries)
-}
-
-func (m model) visibleEntry(row int) statusEntry {
-	if m.filter.active() {
-		row = m.matches[row]
-	}
-	return m.entries[row]
-}
-
-func (m model) visibleIndex(path string) int {
-	if path != "" {
-		for i := 0; i < m.visibleCount(); i++ {
-			if m.visibleEntry(i).Path == path {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func (m *model) rebuildMatches(previousPath string) {
-	m.matches = nil
-	if m.filter.active() {
-		query := strings.ToLower(filepath.ToSlash(m.filter.path))
-		for i, entry := range m.entries {
-			if m.filter.codes != "" && !strings.ContainsRune(m.filter.codes, entry.Code) {
-				continue
-			}
-			if query == "" || strings.Contains(strings.ToLower(filepath.ToSlash(entry.Path)), query) {
-				m.matches = append(m.matches, i)
-			}
-		}
-	}
-
-	if row := m.visibleIndex(previousPath); row >= 0 {
-		m.cursor = row
-	} else {
-		m.cursor = clamp(m.cursor, 0, m.visibleCount()-1)
-	}
-}
-
-func (m *model) syncFilterPreview(previousPath string) tea.Cmd {
-	if m.preview.path != "" && m.visibleIndex(m.preview.path) < 0 {
-		m.preview = preview{kind: previewHelp, title: "Help"}.withText(helpText())
-	}
-	if m.loadingPreview && m.visibleIndex(m.previewPath) < 0 {
-		m.cancelPreviewRequest()
-	}
-	if m.currentPath() != previousPath {
-		return m.followCursor()
-	}
-	return nil
-}
-
 func (m *model) applyFilter(filter changeFilter) tea.Cmd {
 	previousPath := m.currentPath()
 	m.filter = filter
-	m.rebuildMatches(previousPath)
-	return m.syncFilterPreview(previousPath)
+	m.rebuildVisibleRows(previousPath)
+	return m.syncVisiblePreview(previousPath)
 }
 
 func (m *model) openFilter() tea.Cmd {

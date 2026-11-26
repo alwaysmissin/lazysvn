@@ -105,11 +105,12 @@ type notice struct {
 }
 
 type model struct {
-	entries []statusEntry
-	cursor  int
-	marked  map[string]struct{}
-	filter  changeFilter
-	matches []int // indices into entries, used only while the filter is active
+	entries     []statusEntry
+	cursor      int
+	marked      map[string]struct{}
+	filter      changeFilter
+	sortOrder   sortOrder
+	visibleRows []int // indices into entries, in display order
 
 	filterInputs [filterFieldCount]textinput.Model
 	filterField  int
@@ -172,8 +173,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		prev := m.currentPath()
 		m = m.onStatus(msg)
-		if msg.seq == m.statusSeq && msg.err == nil && m.filter.active() {
-			cmd := m.syncFilterPreview(prev)
+		if msg.seq == m.statusSeq && msg.err == nil && m.usesVisibleRows() {
+			cmd := m.syncVisiblePreview(prev)
 			return m, cmd
 		}
 		return m, nil
@@ -232,7 +233,7 @@ func (m model) onStatus(msg statusMsg) model {
 	prev := m.currentPath()
 	m.entries = msg.entries
 	m.pruneMarks()
-	m.rebuildMatches(prev)
+	m.rebuildVisibleRows(prev)
 	return m
 }
 
@@ -288,6 +289,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
+	case "tab":
+		m.toggleSortOrder()
+		return m, nil
 	case "up", "k":
 		m.moveCursor(-1)
 		return m, m.followCursor()
@@ -624,7 +628,7 @@ func (m model) selectedTargets() []string {
 	if len(m.marked) > 0 {
 		targets := make([]string, 0, len(m.marked))
 		if m.filter.active() {
-			for _, i := range m.matches {
+			for _, i := range m.visibleRows {
 				path := m.entries[i].Path
 				if _, ok := m.marked[path]; ok {
 					targets = append(targets, path)

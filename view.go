@@ -131,6 +131,7 @@ func (m model) renderChangesPane(p paneBox) string {
 	if m.filter.active() {
 		title += fmt.Sprintf(" %d/%d", visible, total)
 	}
+	title += " · by " + m.sortOrder.String()
 	if n := len(m.marked); n > 0 {
 		title += fmt.Sprintf(" · %d marked", n)
 		if m.filter.active() {
@@ -314,7 +315,7 @@ func (m model) renderFooter(width int) string {
 	if m.filter.active() {
 		filterHelp = "/ filter  esc clear filter"
 	}
-	help := filterHelp + "  j/k move  space mark  d diff  l log  c commit  a add  v revert  u update  r refresh  q quit"
+	help := "tab sort  " + filterHelp + "  j/k move  space mark  d diff  l log  c commit  a add  v revert  u update  r refresh  q quit"
 	status, style := m.statusText()
 	return dimStyle.Render(truncate(help+" | ", width)) + style.Render(truncate(status, max(0, width-ansi.StringWidth(help+" | "))))
 }

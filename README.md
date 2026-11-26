@@ -84,6 +84,7 @@ with `goreleaser release --snapshot --clean`.
 
 - `j` / `k` or arrows: move
 - `g` / `G`: top / bottom
+- `Tab`: toggle between sorting by path and by SVN status
 - `space`: mark/unmark file
 - `/`: edit the status and path filters at the bottom of the Changes pane
 - `esc`: clear the active filter, or clear all marks when no filter is active
@@ -102,13 +103,18 @@ with `goreleaser release --snapshot --clean`.
 
 Only one working-copy-changing command (`update`, `add`, `revert`, `commit`) runs at a time; other svn commands wait until it finishes.
 
+Path sorting uses working-copy-relative paths. Status sorting lists modified
+(`M`) entries first, added (`A`) entries next, then the other status codes in
+ascending order. Each status group is sorted by path. LazySVN remembers the
+sort order across working copies after a normal exit.
+
 ### Filtering changes
 
 Press `/` to edit the filter bar at the bottom of the Changes pane. The
 status field is focused first. Use `Tab` or `Shift+Tab` to switch between
 status and file path, `Enter` to apply, and `Esc` to cancel editing. The bar
 shows the active filters after applying them. Leave either field blank to
-match any value in that field.
+match any value in that field. Filters apply to the current session.
 
 Path matching is case-insensitive. Enter `camera.go` to match
 `src/camera.go`, or enter `src/` to match changes under that directory.
