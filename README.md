@@ -88,6 +88,10 @@ with `goreleaser release --snapshot --clean`.
 - `g` / `G`: top / bottom
 - `Tab`: toggle between sorting by path and by SVN status
 - `space`: mark/unmark file
+- `Shift+V`: start a range at the current row. Move the cursor to preview the
+  range (`+`), then press `Shift+V` or `space` to add it to the existing marks.
+  Press `Esc` to cancel the range and keep the existing marks. With a filter
+  active, the range includes only visible rows.
 - `/`: edit the status and path filters at the bottom of the Changes pane
 - `esc`: clear the active filter, or clear all marks when no filter is active
 - `d` or `Enter`: diff selected file (the diff follows the cursor)

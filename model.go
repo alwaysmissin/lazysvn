@@ -16,6 +16,7 @@ import (
 //	normal ──v──▶ confirmRevert ──y──────────────────▶ normal (+ revert op)
 //	              confirmRevert ──n / esc / q─────────▶ normal
 //	normal ──/──▶ filter ──enter / esc───────────────▶ normal
+//	normal ──V──▶ selectRange ──V / space / esc──────▶ normal
 //
 // ctrl+c quits from every mode.
 type mode int
@@ -25,6 +26,7 @@ const (
 	modeCommit
 	modeConfirmRevert
 	modeFilter
+	modeSelectRange
 )
 
 // opKind is a working-copy-changing svn operation. At most one runs at a time
@@ -116,6 +118,7 @@ type model struct {
 	filterField  int
 
 	mode         mode
+	rangeAnchor  int      // visible row where range selection began
 	pendingPaths []string // targets captured when entering commit/confirmRevert
 	pendingMiss  []string // commit: pendingPaths that are missing ('!')
 	pendingNote  string
@@ -196,7 +199,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeFilter:
 			return m.updateFilter(msg)
 		default:
-			return m.updateNormal(msg)
+			return m.updateChanges(msg)
 		}
 	}
 	if m.mode == modeCommit { // e.g. cursor blink
@@ -230,6 +233,10 @@ func (m model) onStatus(msg statusMsg) model {
 	}
 
 	m.statusErr = nil
+	if m.mode == modeSelectRange {
+		// The anchor refers to the visible rows from before this refresh.
+		m.mode = modeNormal
+	}
 	prev := m.currentPath()
 	m.entries = msg.entries
 	m.pruneMarks()
@@ -283,15 +290,13 @@ func (m model) onAction(msg actionMsg) (model, tea.Cmd) {
 
 // ---- key handling ---------------------------------------------------------
 
-func (m model) updateNormal(msg tea.KeyMsg) (model, tea.Cmd) {
+func (m model) updateChanges(msg tea.KeyMsg) (model, tea.Cmd) {
 	m.notice = notice{}
+	key := msg.String()
 
-	switch msg.String() {
+	switch key {
 	case "q":
 		return m, tea.Quit
-	case "tab":
-		m.toggleSortOrder()
-		return m, nil
 	case "up", "k":
 		m.moveCursor(-1)
 		return m, m.followCursor()
@@ -304,6 +309,29 @@ func (m model) updateNormal(msg tea.KeyMsg) (model, tea.Cmd) {
 	case "G", "end":
 		m.cursor = max(0, m.visibleCount()-1)
 		return m, m.followCursor()
+	}
+
+	if m.mode == modeSelectRange {
+		switch key {
+		case "V", " ":
+			m.markRange()
+			m.mode = modeNormal
+		case "esc":
+			m.mode = modeNormal
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "tab":
+		m.toggleSortOrder()
+		return m, nil
+	case "V":
+		if m.visibleCount() > 0 {
+			m.rangeAnchor = m.cursor
+			m.mode = modeSelectRange
+		}
+		return m, nil
 	case " ":
 		m.toggleMark()
 		return m, nil
@@ -328,14 +356,14 @@ func (m model) updateNormal(msg tea.KeyMsg) (model, tea.Cmd) {
 
 	// Everything below runs svn, so it waits for a running operation.
 	if m.running != opNone {
-		switch msg.String() {
+		switch key {
 		case "r", "enter", "d", "l", "u", "a", "v", "c":
 			m.setNotice(noticeError, fmt.Sprintf("svn %s is still running.", m.running))
 		}
 		return m, nil
 	}
 
-	switch msg.String() {
+	switch key {
 	case "r":
 		return m, m.refresh()
 	case "enter", "d":
@@ -455,7 +483,7 @@ func (m model) onMouse(msg tea.MouseMsg) (model, tea.Cmd) {
 	default:
 		return m, nil
 	}
-	if m.width == 0 || m.height == 0 || m.mode != modeNormal {
+	if m.width == 0 || m.height == 0 || (m.mode != modeNormal && m.mode != modeSelectRange) {
 		return m, nil
 	}
 	l := m.layout()
@@ -579,6 +607,17 @@ func (m *model) startOp(req opRequest) tea.Cmd {
 
 func (m *model) moveCursor(delta int) {
 	m.cursor = clamp(m.cursor+delta, 0, m.visibleCount()-1)
+}
+
+func (m model) rangeBounds() (first, last int) {
+	return min(m.rangeAnchor, m.cursor), max(m.rangeAnchor, m.cursor)
+}
+
+func (m *model) markRange() {
+	first, last := m.rangeBounds()
+	for row := first; row <= last; row++ {
+		m.marked[m.visibleEntry(row).Path] = struct{}{}
+	}
 }
 
 func (m *model) toggleMark() {
