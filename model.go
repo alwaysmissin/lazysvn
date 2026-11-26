@@ -78,6 +78,9 @@ type preview struct {
 	path  string   // file a diff/log belongs to
 	lines []string // plain text, used when diff is nil
 	diff  *diffDoc // prepared diff for a successful previewDiff
+	// scroll is how many body rows the preview is scrolled down. It lives with
+	// the content, so replacing the preview starts the new one at the top.
+	scroll int
 }
 
 func (p preview) withText(s string) preview {
@@ -161,6 +164,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onPreview(msg), nil
 	case actionMsg:
 		return m.onAction(msg)
+	case tea.MouseMsg:
+		return m.onMouse(msg)
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -391,6 +396,66 @@ func (m model) updateConfirmRevert(msg tea.KeyMsg) (model, tea.Cmd) {
 		m.setNotice(noticeInfo, "Revert canceled.")
 	}
 	return m, nil
+}
+
+// ---- mouse ----------------------------------------------------------------
+
+// wheelStep is how many rows one wheel notch scrolls.
+const wheelStep = 3
+
+// onMouse scrolls the pane under the pointer. Wheel events only arrive because
+// main.go enables cell-motion reporting: without it the terminal translates
+// the wheel into arrow keys, which moved the cursor no matter where the
+// pointer was.
+func (m model) onMouse(msg tea.MouseMsg) (model, tea.Cmd) {
+	if msg.Action != tea.MouseActionPress {
+		return m, nil // motion and release carry no scroll
+	}
+	var delta int
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		delta = -wheelStep
+	case tea.MouseButtonWheelDown:
+		delta = wheelStep
+	default:
+		return m, nil
+	}
+	if m.width == 0 || m.height == 0 || m.mode != modeNormal {
+		return m, nil
+	}
+	l := m.layout()
+	switch {
+	case l.changes.rect.contains(msg.X, msg.Y):
+		// The list scrolls by moving the cursor, exactly like the arrow keys.
+		m.notice = notice{}
+		m.moveCursor(delta)
+		return m, m.followCursor()
+	case l.preview.rect.contains(msg.X, msg.Y):
+		m.notice = notice{}
+		m.scrollPreview(delta)
+	}
+	return m, nil
+}
+
+// previewBodyRows is the number of scrollable preview rows: the pane text
+// height minus the title line.
+func (m model) previewBodyRows() int {
+	return max(0, m.layout().preview.textHeight()-1)
+}
+
+// scrollPreview moves the preview by delta rows, clamped to its content.
+func (m *model) scrollPreview(delta int) {
+	rows := m.previewBodyRows()
+	if rows <= 0 {
+		m.preview.scroll = 0
+		return
+	}
+	l := m.layout()
+	maxOffset := max(0, len(m.preview.lines)-rows)
+	if m.preview.kind == previewDiff && m.preview.diff != nil {
+		maxOffset = diffMaxOffset(m.preview.diff, l.preview.textWidth(), rows)
+	}
+	m.preview.scroll = clamp(m.preview.scroll+delta, 0, maxOffset)
 }
 
 // ---- transitions ----------------------------------------------------------

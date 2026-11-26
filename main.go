@@ -20,7 +20,7 @@ func main() {
 		os.Exit(runCLI(os.Args[1:]))
 	}
 
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "lazysvn failed: %v\n", err)
 		os.Exit(1)
@@ -102,6 +102,7 @@ LazySVN keys:
   u              svn update
   r              Refresh status
   h or ?         Show help
+  mouse wheel    Scroll the pane under the pointer
   q / ctrl+c     Quit
 	`)
 }

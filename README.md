@@ -94,6 +94,9 @@ with `goreleaser release --snapshot --clean`.
 - `r`: refresh status
 - `h` or `?`: help
 - `q` or `ctrl+c`: quit (`ctrl+c` works inside prompts too)
+- mouse wheel: scroll the pane under the pointer (the file list moves the
+  selection; diff, log and help panes scroll on their own). Mouse reporting
+  is on, so some terminals need `Shift` held to select text.
 
 Only one working-copy-changing command (`update`, `add`, `revert`, `commit`) runs at a time; other svn commands wait until it finishes.
 
