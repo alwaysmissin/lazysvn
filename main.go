@@ -16,10 +16,7 @@ var pseudoVersionRE = regexp.MustCompile(`^v\d+\.\d+\.\d+-\d{14}-[0-9a-f]{12,}(?
 var version = "dev"
 
 func main() {
-	if len(os.Args) > 1 {
-		os.Exit(runCLI(os.Args[1:]))
-	}
-	os.Exit(runTUI())
+	os.Exit(runCLI(os.Args[1:], runTUI))
 }
 
 func runTUI() int {
@@ -47,8 +44,11 @@ func isHelpArg(s string) bool {
 	return s == "-h" || s == "--help" || s == "help"
 }
 
-// runCLI handles non-TUI subcommands and returns the process exit code.
-func runCLI(args []string) int {
+func runCLI(args []string, openTUI func() int) int {
+	if len(args) == 0 {
+		return openTUI()
+	}
+
 	switch cmd := args[0]; {
 	case isHelpArg(cmd):
 		fmt.Println(cliHelp())
@@ -98,8 +98,21 @@ func runCLI(args []string) int {
 		}
 		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "unknown argument: %s\n\n%s\n", cmd, cliHelp())
-		return 2
+		if cmd == "--" {
+			args = args[1:]
+		} else if strings.HasPrefix(cmd, "-") {
+			fmt.Fprintf(os.Stderr, "unknown option: %s\n\n%s\n", cmd, cliHelp())
+			return 2
+		}
+		if len(args) != 1 {
+			fmt.Fprintf(os.Stderr, "expected exactly one directory path\n\n%s\n", cliHelp())
+			return 2
+		}
+		if err := os.Chdir(args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "lazysvn: %v\n", err)
+			return 1
+		}
+		return openTUI()
 	}
 }
 
@@ -132,11 +145,15 @@ LazySVN
 A LazyGit-style terminal UI for Subversion (SVN).
 
 Usage:
-  lazysvn
+  lazysvn [path]
+  lazysvn -- <path>
   lazysvn --version
   lazysvn update [tag]
   lazysvn uninstall
   lazysvn --help
+
+Open the SVN working copy at path, or use the current directory by default.
+Use -- before a path that starts with a dash or matches a command name.
 
 Command:
   version      Show lazysvn version

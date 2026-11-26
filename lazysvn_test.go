@@ -423,8 +423,83 @@ func TestVersionIgnoresCurrentDirectory(t *testing.T) {
 }
 
 func TestUpdateRejectsOptions(t *testing.T) {
-	if code := runCLI([]string{"update", "--force"}); code != 2 {
+	if code := runCLI([]string{"update", "--force"}, nil); code != 2 {
 		t.Errorf("exit = %d, want 2", code)
+	}
+}
+
+func TestCLIOpensWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"product", "work copy", "update", "-product"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		dir  string
+	}{
+		{"current directory", nil, "."},
+		{"relative path", []string{"product"}, "product"},
+		{"absolute path with spaces", []string{filepath.Join(root, "work copy")}, "work copy"},
+		{"command name as path", []string{"--", "update"}, "update"},
+		{"dash-prefixed path", []string{"--", "-product"}, "-product"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(root)
+			want, err := os.Stat(filepath.Join(root, tc.dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			opened := false
+			code := runCLI(tc.args, func() int {
+				opened = true
+				got, err := os.Stat(".")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !os.SameFile(got, want) {
+					cwd, _ := os.Getwd()
+					t.Errorf("TUI opened in %q, want %q", cwd, filepath.Join(root, tc.dir))
+				}
+				return 0
+			})
+			if code != 0 || !opened {
+				t.Errorf("exit = %d, TUI opened = %v", code, opened)
+			}
+		})
+	}
+}
+
+func TestCLIRejectsInvalidDirectoryArguments(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		code int
+	}{
+		{"missing directory", []string{filepath.Join(root, "missing")}, 1},
+		{"file path", []string{file}, 1},
+		{"extra path", []string{root, root}, 2},
+		{"missing path after --", []string{"--"}, 2},
+		{"unknown option", []string{"--unknown"}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := runCLI(tc.args, func() int {
+				t.Fatal("opened TUI with invalid arguments")
+				return 1
+			})
+			if code != tc.code {
+				t.Errorf("exit = %d, want %d", code, tc.code)
+			}
+		})
 	}
 }
 

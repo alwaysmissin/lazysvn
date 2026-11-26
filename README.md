@@ -66,12 +66,14 @@ the binary, it prints that package manager's command instead of touching it.
 - Marks multiple files for actions
 - Runs `svn commit`, `svn add`, `svn revert`, and `svn update`
 
-Run `lazysvn` from inside an SVN working copy.
+Run `lazysvn` from inside an SVN working copy, or pass a relative or absolute
+directory path, such as `lazysvn product`. If the path starts with a dash or
+matches a command name, put `--` before it, as in `lazysvn -- update`.
 
 ## Develop
 
 ```bash
-go run .
+go run . /path/to/working-copy
 go test ./...
 go test -run '^$' -bench . -benchmem   # hot-path benchmarks
 ```
