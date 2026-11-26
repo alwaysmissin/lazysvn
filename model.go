@@ -15,6 +15,7 @@ import (
 //	              commit  ──esc──────────────────────▶ normal
 //	normal ──v──▶ confirmRevert ──y──────────────────▶ normal (+ revert op)
 //	              confirmRevert ──n / esc / q─────────▶ normal
+//	normal ──/──▶ filter ──enter / esc───────────────▶ normal
 //
 // ctrl+c quits from every mode.
 type mode int
@@ -23,6 +24,7 @@ const (
 	modeNormal mode = iota
 	modeCommit
 	modeConfirmRevert
+	modeFilter
 )
 
 // opKind is a working-copy-changing svn operation. At most one runs at a time
@@ -106,6 +108,11 @@ type model struct {
 	entries []statusEntry
 	cursor  int
 	marked  map[string]struct{}
+	filter  changeFilter
+	matches []int // indices into entries, used only while the filter is active
+
+	filterInputs [filterFieldCount]textinput.Model
+	filterField  int
 
 	mode         mode
 	pendingPaths []string // targets captured when entering commit/confirmRevert
@@ -119,6 +126,7 @@ type model struct {
 	// showing a diff for a file the cursor has already left.
 	previewSeq     int
 	previewLoading previewKind // kind being loaded; meaningful only if loadingPreview
+	previewPath    string      // path being loaded; meaningful only if loadingPreview
 	loadingPreview bool
 	followDiff     bool // cursor moves re-diff the file under the cursor
 
@@ -157,9 +165,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.mode == modeFilter {
+			m.resizeFilterInputs()
+		}
 		return m, nil
 	case statusMsg:
-		return m.onStatus(msg), nil
+		prev := m.currentPath()
+		m = m.onStatus(msg)
+		if msg.seq == m.statusSeq && msg.err == nil && m.filter.active() {
+			cmd := m.syncFilterPreview(prev)
+			return m, cmd
+		}
+		return m, nil
 	case previewMsg:
 		return m.onPreview(msg), nil
 	case actionMsg:
@@ -175,6 +192,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommit(msg)
 		case modeConfirmRevert:
 			return m.updateConfirmRevert(msg)
+		case modeFilter:
+			return m.updateFilter(msg)
 		default:
 			return m.updateNormal(msg)
 		}
@@ -182,6 +201,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.mode == modeCommit { // e.g. cursor blink
 		var cmd tea.Cmd
 		m.commitInput, cmd = m.commitInput.Update(msg)
+		return m, cmd
+	}
+	if m.mode == modeFilter {
+		cmd := m.updateFilterInput(msg)
 		return m, cmd
 	}
 	return m, nil
@@ -209,7 +232,7 @@ func (m model) onStatus(msg statusMsg) model {
 	prev := m.currentPath()
 	m.entries = msg.entries
 	m.pruneMarks()
-	m.cursor = m.indexOf(prev, m.cursor)
+	m.rebuildMatches(prev)
 	return m
 }
 
@@ -218,6 +241,7 @@ func (m model) onPreview(msg previewMsg) model {
 		return m
 	}
 	m.loadingPreview = false
+	m.previewPath = ""
 	p := preview{kind: msg.kind, path: msg.path}
 	switch msg.kind {
 	case previewDiff:
@@ -274,17 +298,24 @@ func (m model) updateNormal(msg tea.KeyMsg) (model, tea.Cmd) {
 		m.cursor = 0
 		return m, m.followCursor()
 	case "G", "end":
-		m.cursor = max(0, len(m.entries)-1)
+		m.cursor = max(0, m.visibleCount()-1)
 		return m, m.followCursor()
 	case " ":
 		m.toggleMark()
 		return m, nil
 	case "esc":
+		if m.filter.active() {
+			cmd := m.applyFilter(changeFilter{})
+			return m, cmd
+		}
 		if n := len(m.marked); n > 0 {
 			m.marked = map[string]struct{}{}
 			m.setNotice(noticeInfo, fmt.Sprintf("Cleared %d mark(s).", n))
 		}
 		return m, nil
+	case "/":
+		cmd := m.openFilter()
+		return m, cmd
 	case "h", "?":
 		m.followDiff = false
 		m.showPreview(preview{kind: previewHelp, title: "Help"}.withText(helpText()))
@@ -472,15 +503,21 @@ func (m *model) setNotice(level noticeLevel, text string) {
 
 // showPreview replaces the pane immediately and invalidates in-flight requests.
 func (m *model) showPreview(p preview) {
+	m.cancelPreviewRequest()
+	m.preview = p
+}
+
+func (m *model) cancelPreviewRequest() {
 	m.previewSeq++
 	m.loadingPreview = false
-	m.preview = p
+	m.previewPath = ""
 }
 
 func (m *model) requestPreview(kind previewKind, path string, cmd func(int, string) tea.Cmd) tea.Cmd {
 	m.previewSeq++
 	m.loadingPreview = true
 	m.previewLoading = kind
+	m.previewPath = path
 	return cmd(m.previewSeq, path)
 }
 
@@ -537,7 +574,7 @@ func (m *model) startOp(req opRequest) tea.Cmd {
 // ---- selection ------------------------------------------------------------
 
 func (m *model) moveCursor(delta int) {
-	m.cursor = clamp(m.cursor+delta, 0, len(m.entries)-1)
+	m.cursor = clamp(m.cursor+delta, 0, m.visibleCount()-1)
 }
 
 func (m *model) toggleMark() {
@@ -571,10 +608,10 @@ func (m *model) pruneMarks() {
 }
 
 func (m model) currentEntry() (statusEntry, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.entries) {
+	if m.cursor < 0 || m.cursor >= m.visibleCount() {
 		return statusEntry{}, false
 	}
-	return m.entries[m.cursor], true
+	return m.visibleEntry(m.cursor), true
 }
 
 func (m model) currentPath() string {
@@ -582,25 +619,26 @@ func (m model) currentPath() string {
 	return e.Path
 }
 
-// indexOf finds path in entries, falling back to the clamped old index.
-func (m model) indexOf(path string, fallback int) int {
-	for i, e := range m.entries {
-		if e.Path == path {
-			return i
-		}
-	}
-	return clamp(fallback, 0, len(m.entries)-1)
-}
-
-// selectedTargets is the marked paths if any, else the file under the cursor.
+// selectedTargets is the visible marked paths if any, else the file under the cursor.
 func (m model) selectedTargets() []string {
 	if len(m.marked) > 0 {
 		targets := make([]string, 0, len(m.marked))
-		for p := range m.marked {
-			targets = append(targets, p)
+		if m.filter.active() {
+			for _, i := range m.matches {
+				path := m.entries[i].Path
+				if _, ok := m.marked[path]; ok {
+					targets = append(targets, path)
+				}
+			}
+		} else {
+			for path := range m.marked {
+				targets = append(targets, path)
+			}
 		}
-		sort.Strings(targets)
-		return targets
+		if len(targets) > 0 {
+			sort.Strings(targets)
+			return targets
+		}
 	}
 	if p := m.currentPath(); p != "" {
 		return []string{p}

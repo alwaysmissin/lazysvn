@@ -127,27 +127,41 @@ func (m model) renderChangesPane(p paneBox) string {
 	width := p.textWidth()
 
 	title := "Changes"
+	total, visible := len(m.entries), m.visibleCount()
+	if m.filter.active() {
+		title += fmt.Sprintf(" %d/%d", visible, total)
+	}
 	if n := len(m.marked); n > 0 {
 		title += fmt.Sprintf(" · %d marked", n)
+		if m.filter.active() {
+			title += " total"
+		}
 	}
 	if m.statusErr != nil {
 		title += " " + errorStyle.Render("(stale)")
 	}
-	lines := []string{title}
-
-	switch {
-	case len(m.entries) == 0 && m.statusErr != nil:
-		lines = append(lines, errorStyle.Render("svn status failed; see preview."))
-	case len(m.entries) == 0 && m.statusLoading:
-		lines = append(lines, dimStyle.Render("Loading svn status..."))
-	case len(m.entries) == 0:
-		lines = append(lines, "Working copy clean.")
+	lines := []string{truncate(title, width)}
+	showFilter := m.mode == modeFilter || m.filter.active()
+	listRows := rows - 1
+	if showFilter {
+		listRows--
 	}
 
-	start := m.scrollStart(rows - 1)
-	end := min(len(m.entries), start+rows-1)
+	switch {
+	case total == 0 && m.statusErr != nil:
+		lines = append(lines, errorStyle.Render(truncate("svn status failed; see preview.", width)))
+	case total == 0 && m.statusLoading:
+		lines = append(lines, dimStyle.Render(truncate("Loading svn status...", width)))
+	case total == 0:
+		lines = append(lines, truncate("Working copy clean.", width))
+	case visible == 0:
+		lines = append(lines, truncate("No matching changes.", width))
+	}
+
+	start := m.scrollStart(listRows)
+	end := min(visible, start+listRows)
 	for i := start; i < end; i++ {
-		e := m.entries[i]
+		e := m.visibleEntry(i)
 		cursor, mark := " ", " "
 		if i == m.cursor {
 			cursor = ">"
@@ -160,6 +174,13 @@ func (m model) renderChangesPane(p paneBox) string {
 			line += dimStyle.Render(" (" + e.Changelist + ")")
 		}
 		lines = append(lines, truncate(line, width))
+	}
+
+	if showFilter {
+		for len(lines) < rows-1 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, m.renderFilterBar(width))
 	}
 
 	return border.Render(strings.Join(lines, "\n"))
@@ -233,6 +254,48 @@ func (m model) revertOverlay(width int) []string {
 	return lines
 }
 
+const filterBarGap = " │ "
+
+func filterBarWidths(width int) [filterFieldCount]int {
+	available := width - ansi.StringWidth(filterBarGap)
+	status := max(available/3, min(20, (available+1)/2))
+	return [filterFieldCount]int{status, available - status}
+}
+
+func filterFieldLabel(field, width int) string {
+	if field == filterStatusField {
+		if width < 17 {
+			return "S "
+		}
+		return "Status "
+	}
+	if width < 10 {
+		return "F "
+	}
+	return "File "
+}
+
+func (m model) renderFilterBar(width int) string {
+	widths := filterBarWidths(width)
+	values := [filterFieldCount]string{m.filter.statusText, m.filter.path}
+	var fields [filterFieldCount]string
+	for i, size := range widths {
+		label := filterFieldLabel(i, size)
+		prefix := dimStyle.Render("  " + label)
+		value := values[i]
+		if m.mode == modeFilter {
+			if i == m.filterField {
+				prefix = promptStyle.Render("> " + label)
+			}
+			value = m.filterInputs[i].View()
+		} else if value == "" {
+			value = dimStyle.Render("any")
+		}
+		fields[i] = padRight(truncate(prefix+value, size), size)
+	}
+	return strings.Join(fields[:], dimStyle.Render(filterBarGap))
+}
+
 func (m model) renderFooter(width int) string {
 	width = max(8, width)
 	switch m.mode {
@@ -240,9 +303,18 @@ func (m model) renderFooter(width int) string {
 		return promptStyle.Render(truncate(fmt.Sprintf("Commit (%d path(s)): %s", len(m.pendingPaths), m.commitInput.View()), width))
 	case modeConfirmRevert:
 		return promptStyle.Render(truncate(fmt.Sprintf("Revert %d path(s)? Press y or n.", len(m.pendingPaths)), width))
+	case modeFilter:
+		if m.notice.level == noticeError && m.notice.text != "" {
+			return errorStyle.Render(truncate(m.notice.text, width))
+		}
+		return dimStyle.Render(truncate("Tab switch fields  Enter apply  Esc cancel", width))
 	}
 
-	help := "j/k move  space mark  esc unmark  d diff  l log  c commit  a add  v revert  u update  r refresh  q quit"
+	filterHelp := "/ filter  esc unmark"
+	if m.filter.active() {
+		filterHelp = "/ filter  esc clear filter"
+	}
+	help := filterHelp + "  j/k move  space mark  d diff  l log  c commit  a add  v revert  u update  r refresh  q quit"
 	status, style := m.statusText()
 	return dimStyle.Render(truncate(help+" | ", width)) + style.Render(truncate(status, max(0, width-ansi.StringWidth(help+" | "))))
 }
@@ -268,15 +340,18 @@ func (m model) statusText() (string, lipgloss.Style) {
 		return "svn status failed; the list may be stale.", errorStyle
 	case len(m.entries) == 0:
 		return "Working copy clean.", dimStyle
+	case m.filter.active():
+		return fmt.Sprintf("%d of %d change(s) match.", m.visibleCount(), len(m.entries)), dimStyle
 	}
 	return fmt.Sprintf("%d change(s).", len(m.entries)), dimStyle
 }
 
 func (m model) scrollStart(rows int) int {
-	if len(m.entries) <= rows {
+	visible := m.visibleCount()
+	if visible <= rows {
 		return 0
 	}
-	return clamp(m.cursor-rows/2, 0, len(m.entries)-rows)
+	return clamp(m.cursor-rows/2, 0, visible-rows)
 }
 
 var (

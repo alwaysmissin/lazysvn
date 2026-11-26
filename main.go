@@ -93,7 +93,8 @@ LazySVN keys:
   j/k or arrows  Move
   g / G          Top / Bottom
   space          Mark/unmark file
-  esc            Clear all marks
+  /              Edit filters at the bottom of Changes (status first, Tab for path)
+  esc            Clear filter, or clear marks if no filter is active
   d or Enter     Diff selected file (follows the cursor)
   l              Show recent log (20 entries) for selected file
   c              Commit marked files (or current file)

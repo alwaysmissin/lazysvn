@@ -60,6 +60,7 @@ the binary, it prints that package manager's command instead of touching it.
 ## What it does
 
 - Shows `svn status` in a navigable list
+- Filters changes by file name, path, and SVN status
 - Shows `svn diff` for the selected file
 - Shows `svn log -l 20` for the selected file
 - Marks multiple files for actions
@@ -84,7 +85,8 @@ with `goreleaser release --snapshot --clean`.
 - `j` / `k` or arrows: move
 - `g` / `G`: top / bottom
 - `space`: mark/unmark file
-- `esc`: clear all marks
+- `/`: edit the status and path filters at the bottom of the Changes pane
+- `esc`: clear the active filter, or clear all marks when no filter is active
 - `d` or `Enter`: diff selected file (the diff follows the cursor)
 - `l`: show log for selected file
 - `c`: commit marked files (or current file)
@@ -99,6 +101,26 @@ with `goreleaser release --snapshot --clean`.
   is on, so some terminals need `Shift` held to select text.
 
 Only one working-copy-changing command (`update`, `add`, `revert`, `commit`) runs at a time; other svn commands wait until it finishes.
+
+### Filtering changes
+
+Press `/` to edit the filter bar at the bottom of the Changes pane. The
+status field is focused first. Use `Tab` or `Shift+Tab` to switch between
+status and file path, `Enter` to apply, and `Esc` to cancel editing. The bar
+shows the active filters after applying them. Leave either field blank to
+match any value in that field.
+
+Path matching is case-insensitive. Enter `camera.go` to match
+`src/camera.go`, or enter `src/` to match changes under that directory.
+The status field accepts SVN codes such as `M`, `A`, and `?` or names such as
+`modified` (also `modify`), `added`, and `unversioned`. Separate statuses with
+commas or spaces to match any of them. For example, path `src/` and status
+`modify,A` show modified or added entries under `src/`.
+
+While filtering, commit, add, and revert select visible marked paths or fall
+back to the current row. Clear the filter to see hidden marks again. Commit
+and revert confirmations also show any paths required by SVN, such as the
+other side of a move.
 
 ## More from Sawir Studio
 
